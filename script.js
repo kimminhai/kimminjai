@@ -17,6 +17,8 @@ class Player {
     this.autoShootDuration = 0;
     this.tripleShot = false;
     this.tripleShotDuration = 0;
+    this.doubleShot = false; // 추가된 더블 샷 기능
+    this.doubleShotDuration = 0;
   }
 
   draw() {
@@ -58,16 +60,28 @@ class Player {
         this.tripleShotDuration = 0;
       }
     }
+
+    if (this.doubleShot) {
+      // Handle double shot duration
+      this.doubleShotDuration++;
+      if (this.doubleShotDuration > 300) { // Double-shot duration (5 seconds)
+        this.doubleShot = false;
+        this.doubleShotDuration = 0;
+      }
+    }
   }
 
   shoot() {
-    const closestEnemy = this.findClosestEnemy();
+    const target = boss || this.findClosestEnemy();
     if (this.tripleShot) {
-      projectiles.push(new Projectile(this.x + this.width / 2, this.y, -1, closestEnemy));
-      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 0, closestEnemy));
-      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 1, closestEnemy));
+      projectiles.push(new Projectile(this.x + this.width / 2, this.y, -1, target));
+      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 0, target));
+      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 1, target));
+    } else if (this.doubleShot) {
+      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 0, target));
+      projectiles.push(new Projectile(this.x + this.width / 2, this.y, Math.random() * 2 - 1, target)); // Random direction for second shot
     } else {
-      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 0, closestEnemy));
+      projectiles.push(new Projectile(this.x + this.width / 2, this.y, 0, target));
     }
   }
 
@@ -92,23 +106,22 @@ class Player {
 
 // 총알 클래스
 class Projectile {
-  constructor(x, y, direction, targetEnemy) {
+  constructor(x, y, direction, target) {
     this.x = x;
     this.y = y;
     this.radius = 5;
     this.speed = 7;
-    this.direction = direction;
-    this.targetEnemy = targetEnemy;
+    this.target = target;
 
-    if (targetEnemy) {
-      const dx = targetEnemy.x + targetEnemy.width / 2 - x;
-      const dy = targetEnemy.y + targetEnemy.height / 2 - y;
+    if (target) {
+      const dx = target.x + target.width / 2 - x;
+      const dy = target.y + target.height / 2 - y;
       const magnitude = Math.sqrt(dx * dx + dy * dy);
       this.dx = (dx / magnitude) * this.speed;
       this.dy = (dy / magnitude) * this.speed;
     } else {
-      this.dx = 0;
-      this.dy = -this.speed;
+      this.dx = Math.cos(direction) * this.speed;
+      this.dy = Math.sin(direction) * this.speed;
     }
   }
 
@@ -138,7 +151,7 @@ class Enemy {
   }
 
   draw() {
-    ctx.fillStyle = 'purple';
+    ctx.fillStyle = 'purple'; // 초록색 적 제거
     ctx.fillRect(this.x, this.y, this.width, this.height);
   }
 
@@ -194,7 +207,8 @@ class Boss {
     this.y = Math.random() * (canvas.height - this.height);
     this.speedX = 2;
     this.speedY = 2;
-    this.hitPoints = 10;
+    this.hitPoints = 25; // 보스 체력 증가
+    this.shootTimer = 0;
   }
 
   draw() {
@@ -212,26 +226,23 @@ class Boss {
     if (this.y + this.height > canvas.height || this.y < 0) {
       this.speedY = -this.speedY;
     }
-  }
-}
 
-// 타겟 클래스
-class Target {
-  constructor() {
-    this.width = 50;
-    this.height = 50;
-    this.x = Math.random() * (canvas.width - this.width);
-    this.y = 0;
-    this.speed = 3;
+    this.shootTimer++;
+    if (this.shootTimer > 30) { // 보스 총알 발사 간격 (0.5초마다 발사)
+      this.shoot();
+      this.shootTimer = 0;
+    }
   }
 
-  draw() {
-    ctx.fillStyle = 'green';
-    ctx.fillRect(this.x, this.y, this.width, this.height);
-  }
+  shoot() {
+    const numBullets = 8; // Number of bullets in all directions
 
-  update() {
-    this.y += this.speed;
+    for (let i = 0; i < numBullets; i++) {
+      const angle = (i / numBullets) * 2 * Math.PI; // Angle for each bullet
+      const bulletDx = Math.cos(angle) * 5;
+      const bulletDy = Math.sin(angle) * 5;
+      enemyProjectiles.push(new EnemyProjectile(this.x + this.width / 2, this.y + this.height / 2, bulletDx, bulletDy));
+    }
   }
 }
 
@@ -243,11 +254,11 @@ class Item {
     this.x = Math.random() * (canvas.width - this.width);
     this.y = 0;
     this.speed = 2;
-    this.type = type; // 0 for auto shoot, 1 for triple shot
+    this.type = type; // 0 for auto shoot, 1 for triple shot, 2 for double shot
   }
 
   draw() {
-    ctx.fillStyle = this.type === 0 ? 'blue' : 'orange';
+    ctx.fillStyle = this.type === 0 ? 'blue' : this.type === 1 ? 'orange' : 'pink';
     ctx.fillRect(this.x, this.y, this.width, this.height);
   }
 
@@ -259,7 +270,6 @@ class Item {
 const player = new Player();
 const projectiles = [];
 const enemyProjectiles = [];
-const targets = [];
 const enemies = [];
 const items = [];
 const keys = {};
@@ -267,16 +277,12 @@ let score = 0;
 let boss;
 let enemyKillCount = 0;
 
-function spawnTarget() {
-  targets.push(new Target());
-}
-
 function spawnEnemy() {
   enemies.push(new Enemy());
 }
 
 function spawnItem() {
-  items.push(new Item(Math.random() > 0.5 ? 0 : 1)); // Randomly spawn auto shoot or triple shot item
+  items.push(new Item(Math.random() > 0.5 ? 0 : (Math.random() > 0.5 ? 1 : 2))); // Randomly spawn auto shoot, triple shot, or double shot item
 }
 
 function spawnBoss() {
@@ -321,36 +327,14 @@ function animate() {
         projectiles.splice(index, 1);
 
         if (boss.hitPoints === 0) {
-          score += 10; // Extra score for killing boss
+          score += 25; // Extra score for killing boss
           boss = null;
         }
       }
     }
 
-    targets.forEach((target, tIndex) => {
-      if (
-        projectile.x > target.x &&
-        projectile.x < target.x + target.width &&
-        projectile.y > target.y &&
-        projectile.y < target.y + target.height
-      ) {
-        score++;
-        projectiles.splice(index, 1);
-        targets.splice(tIndex, 1);
-      }
-    });
-
     if (projectile.y + projectile.radius < 0) {
       projectiles.splice(index, 1);
-    }
-  });
-
-  targets.forEach((target, index) => {
-    target.draw();
-    target.update();
-
-    if (target.y + target.height > canvas.height) {
-      targets.splice(index, 1);
     }
   });
 
@@ -399,9 +383,12 @@ function animate() {
       if (item.type === 0) {
         player.autoShoot = true;
         player.autoShootDuration = 0;
-      } else {
+      } else if (item.type === 1) {
         player.tripleShot = true;
         player.tripleShotDuration = 0;
+      } else {
+        player.doubleShot = true;
+        player.doubleShotDuration = 0;
       }
       items.splice(index, 1);
     }
@@ -420,8 +407,7 @@ function animate() {
 }
 
 animate();
-setInterval(spawnTarget, 2000);
-setInterval(spawnEnemy, 2000); // Shorter spawn interval for enemies
+setInterval(spawnEnemy, 2500); // Adjusted spawn interval for enemies
 setInterval(spawnItem, 10000);
 
 window.addEventListener('keydown', (e) => {
